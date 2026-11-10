@@ -1,6 +1,6 @@
 // Service worker : l'application s'ouvre même sans connexion.
 // Changez VERSION à chaque mise à jour des fichiers pour forcer le rafraîchissement du cache.
-const VERSION = "courses-v1";
+const VERSION = "courses-v4";
 const FILES = [
   "./", "index.html", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png"

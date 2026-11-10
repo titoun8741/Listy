@@ -84,10 +84,16 @@ li.empty{justify-content:center;text-align:center;font-weight:500;background:tra
 .tab{flex:none;min-height:2.5rem;font:inherit;font-weight:700;font-size:.9rem;border:1.5px solid var(--line);background:var(--paper);color:var(--forest-deep);border-radius:2rem;padding:.4rem 1rem;cursor:pointer;white-space:nowrap}
 .tab.on{background:var(--forest);color:var(--paper);border-color:var(--forest)}
 .tab.new{border-style:dashed;color:var(--muted)}
-#rm,#del{background:var(--pink-btn);color:#fff}
-#del{position:relative;overflow:hidden;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
-#del::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.3);transform:scaleX(0);transform-origin:left;pointer-events:none}
-#del.holding::after{transform:scaleX(1);transition:transform 1.2s linear}
+.tab:not(.new){user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:1rem;background:rgba(20,30,22,.5)}
+.dlg{width:100%;max-width:22rem;background:var(--paper);color:var(--forest-deep);border:2px solid var(--line);border-radius:1.5rem;padding:1.25rem;box-shadow:0 12px 32px rgba(0,0,0,.25)}
+.dlg h2{margin:0 0 .5rem;font-size:1.15rem;font-weight:900;color:var(--forest);overflow-wrap:anywhere}
+.dlg p{margin:0 0 1.1rem;color:var(--muted);font-size:.95rem}
+.acts{display:flex;gap:.5rem;justify-content:flex-end}
+.acts .mini{min-height:2.75rem;font-size:1rem;padding:.5rem 1.2rem}
+#mNo{background:var(--mint);color:var(--forest-deep)}
+#mYes{background:var(--pink-btn);color:#fff}
+#mNo:focus-visible,#mYes:focus-visible{outline:3px solid var(--pink);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -111,11 +117,14 @@ li.empty{justify-content:center;text-align:center;font-weight:500;background:tra
       <input type="text" id="joinIn" placeholder="Rejoindre une liste (code)" aria-label="Code d’une liste" autocomplete="off" maxlength="24">
       <button class="mini" type="submit">Rejoindre</button>
     </form>
+    <form id="who">
+      <input type="text" id="whoIn" placeholder="Votre prénom (pour votre initiale)" aria-label="Votre prénom" autocomplete="off" maxlength="20">
+      <button class="mini" type="submit">OK</button>
+    </form>
     <form id="rename">
       <input type="text" id="renameIn" aria-label="Nom de la liste" autocomplete="off" maxlength="30">
       <button class="mini" type="submit">Renommer</button>
     </form>
-    <p><button class="mini" id="rm" type="button">Retirer cette liste de mon appareil</button> <button class="mini" id="del" type="button">Supprimer la liste (maintenir appuyé)</button></p>
   </section>
   <form id="form">
     <input type="text" id="input" placeholder="Ex. Banane 3, Porc 500 g" aria-label="Nouveau produit" autocomplete="off" maxlength="80">
@@ -128,6 +137,16 @@ li.empty{justify-content:center;text-align:center;font-weight:500;background:tra
     <button class="clear" id="clear" type="button">Retirer les produits cochés</button>
   </section>
 </main>
+</div>
+<div class="modal" id="modal" hidden>
+  <div class="dlg" role="alertdialog" aria-modal="true" aria-labelledby="mTitle" aria-describedby="mText">
+    <h2 id="mTitle"></h2>
+    <p id="mText"></p>
+    <div class="acts">
+      <button class="mini" id="mNo" type="button">Annuler</button>
+      <button class="mini" id="mYes" type="button">Supprimer</button>
+    </div>
+  </div>
 </div>
 <script>
 (function(){
@@ -209,14 +228,22 @@ function renderLists(){
   lists.forEach(function(e){
     var b=btn(dname(e),"tab"+(e.code===code?" on":""),"button");
     if(e.code===code) b.setAttribute("aria-current","true");
-    b.addEventListener("click",function(){if(e.code!==code)setCode(e.code);});
+    b.title="Maintenir appuyé pour supprimer la liste de cet appareil";
+    var t=null, fired=false;
+    b.addEventListener("pointerdown",function(ev){
+      if(ev.button>0) return; fired=false; clearTimeout(t);
+      t=setTimeout(function(){t=null;fired=true;openDel(e);},600);
+    });
+    ["pointerup","pointerleave","pointercancel"].forEach(function(n){b.addEventListener(n,function(){clearTimeout(t);t=null;});});
+    b.addEventListener("contextmenu",function(ev){ev.preventDefault();});
+    b.addEventListener("keydown",function(ev){if(ev.key==="Delete"){ev.preventDefault();openDel(e);}});
+    b.addEventListener("click",function(){if(fired){fired=false;return;} if(e.code!==code)setCode(e.code);});
     box.appendChild(b);
   });
   var n=btn("+ Nouvelle liste","tab new","button");
   n.addEventListener("click",function(){var f=$("newForm");f.hidden=!f.hidden;if(!f.hidden)$("newIn").focus();});
   box.appendChild(n);
   if(document.activeElement!==$("renameIn")) $("renameIn").value=dname(entry(code)||{code:code});
-  $("rm").disabled=lists.length<2;
 }
 
 var uid=function(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);};
@@ -235,7 +262,7 @@ function loadLocal(){
 function saveLocal(){try{localStorage.setItem(lk("items"),JSON.stringify(items));localStorage.setItem(lk("habits"),JSON.stringify(habits));}catch(e){}}
 var col=function(){return db.collection("lists/"+code+"/items");};
 var hcol=function(){return db.collection("lists/"+code+"/habits");};
-function fail(){errMsg="Modification impossible : demandez l’accès en modification à la personne qui partage la liste.";renderStatus();}
+function fail(){errMsg="Modification impossible pour le moment (connexion ou droits). Réessayez.";renderStatus();}
 
 /* ---------- Actions ---------- */
 function write(it){
@@ -259,7 +286,7 @@ function bumpHabit(p,c){
 function addItem(text){
   var t=text.trim(); if(!t) return; errMsg="";
   var p=parse(t), c=cat(p.name);
-  write({id:uid(),text:t,name:p.name,qty:p.qty,cat:c,done:false,by:meId,ts:Date.now()});
+  write({id:uid(),text:t,name:p.name,qty:p.qty,cat:c,done:false,by:meId,who:myName,ts:Date.now()});
   bumpHabit(p,c); renderStatus();
 }
 
@@ -334,7 +361,7 @@ function row(it){
   if(it.qty){var q=document.createElement("span");q.className="qty";q.textContent=it.qty;li.appendChild(q);}
   if(it.by){
     var n=names[it.by], s=document.createElement("span"); s.className="ini";
-    s.textContent=((n&&n.name)||"?").charAt(0).toUpperCase(); s.title=(n&&n.name)||"Ajouté par quelqu’un";
+    var nmv=(n&&n.name)||it.who||""; s.textContent=(nmv||"?").charAt(0).toUpperCase(); s.title=nmv||"Ajouté par quelqu’un";
     if(n&&n.color) s.style.borderColor=n.color; li.appendChild(s);
   }
   var d=btn("×","del","button"); d.setAttribute("aria-label","Supprimer "+it.name);
@@ -369,7 +396,7 @@ function render(){
   if(editing){var e=g.querySelector(".edit");if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}}
 }
 function renderStatus(){
-  $("status").textContent=errMsg||(live?"Liste partagée, mise à jour en direct":dbChecked?"Enregistré sur cet appareil. Le partage n’est pas disponible ici.":"Enregistré sur cet appareil");
+  $("status").textContent=errMsg||(live?"Liste partagée et synchronisée automatiquement":dbChecked?"Enregistré sur cet appareil. Le partage n’est pas disponible ici.":"Enregistré sur cet appareil");
 }
 function renderChips(){
   var box=$("chips"); box.textContent="";
@@ -422,6 +449,12 @@ $("join").addEventListener("submit",function(e){
   }
   errMsg=""; $("joinIn").value=""; setCode(v);
 });
+$("whoIn").value=myName;
+$("who").addEventListener("submit",function(e){
+  e.preventDefault(); myName=$("whoIn").value.trim().slice(0,20);
+  try{localStorage.setItem("courses:me",myName);}catch(x){}
+  $("whoIn").blur();
+});
 $("shareBtn").addEventListener("click",function(){
   var p=$("sharePanel"); p.hidden=!p.hidden; $("shareBtn").setAttribute("aria-expanded",String(!p.hidden));
 });
@@ -434,53 +467,131 @@ $("rename").addEventListener("submit",function(e){
   e.preventDefault(); var n=$("renameIn").value.trim().slice(0,30), en=entry(code); if(!n||!en) return;
   en.name=n; saveLists(); if(live) db.doc("lists/"+code).set({name:n}).catch(fail); renderLists();
 });
-var rmArm=false, RM="Retirer cette liste de mon appareil";
-$("rm").addEventListener("click",function(){
-  var b=$("rm");
-  if(!rmArm){rmArm=true;b.textContent="Confirmer le retrait";setTimeout(function(){rmArm=false;b.textContent=RM;},4000);return;}
-  rmArm=false; b.textContent=RM;
-  try{localStorage.removeItem(lk("items"));localStorage.removeItem(lk("habits"));}catch(e){}
-  removeLocal(code);
-});
 function removeLocal(c){
   try{localStorage.removeItem("courses:items:"+c);localStorage.removeItem("courses:habits:"+c);}catch(e){}
   lists=lists.filter(function(x){return x.code!==c;});
   if(!lists.length) lists=[{code:gen(),name:"Courses",pending:true}];
-  saveLists(); setCode(lists[0].code);
+  saveLists();
+  if(c===code||!entry(code)) setCode(lists[0].code); else renderLists();
 }
-function deleteList(c){
-  if(!(live&&db)){removeLocal(c);return;}
-  unsub.forEach(function(f){f();}); unsub=[];
-  var ic=db.collection("lists/"+c+"/items"), hc=db.collection("lists/"+c+"/habits");
-  Promise.all([ic.get(),hc.get()]).then(function(r){
-    var ops=[];
-    r[0].docs.forEach(function(d){ops.push(ic.doc(d.id).delete());});
-    r[1].docs.forEach(function(d){ops.push(hc.doc(d.id).delete());});
-    return Promise.all(ops);
-  }).then(function(){return db.doc("lists/"+c).delete();})
-    .then(function(){errMsg="";removeLocal(c);})
-    .catch(function(){start();fail();});
+var openedAt=0, pendingDel=null, lastFocus=null;
+function openDel(e){
+  pendingDel=e.code; lastFocus=document.activeElement; openedAt=Date.now();
+  $("mTitle").textContent="Supprimer « "+dname(e)+" » ?";
+  $("mText").textContent="La liste sera supprimée de cet appareil seulement. Les autres personnes la gardent, et vous pourrez la retrouver avec son code.";
+  $("modal").hidden=false; $("mNo").focus();
 }
-var holdT=null;
-function holdStart(e){
-  if(holdT) return;
-  if(e.type==="keydown"){ if(e.repeat||(e.key!=="Enter"&&e.key!==" ")) return; e.preventDefault(); }
-  var b=$("del"); b.classList.add("holding");
-  holdT=setTimeout(function(){holdT=null;b.classList.remove("holding");deleteList(code);},1200);
+function closeDel(){
+  $("modal").hidden=true; pendingDel=null;
+  if(lastFocus&&lastFocus.focus){try{lastFocus.focus();}catch(x){}}
 }
-function holdEnd(){ if(holdT){clearTimeout(holdT);holdT=null;} $("del").classList.remove("holding"); }
-["pointerdown","keydown"].forEach(function(t){$("del").addEventListener(t,holdStart);});
-["pointerup","pointerleave","pointercancel","keyup","blur"].forEach(function(t){$("del").addEventListener(t,holdEnd);});
-$("del").addEventListener("contextmenu",function(e){e.preventDefault();});
+$("mNo").addEventListener("click",function(){if(Date.now()-openedAt<400) return; closeDel();});
+$("mYes").addEventListener("click",function(){
+  if(Date.now()-openedAt<400) return;
+  var c=pendingDel; closeDel(); if(c) removeLocal(c);
+});
+$("modal").addEventListener("click",function(ev){if(ev.target===$("modal")&&Date.now()-openedAt>=400) closeDel();});
+document.addEventListener("keydown",function(ev){
+  if($("modal").hidden) return;
+  if(ev.key==="Escape"){ev.preventDefault();closeDel();return;}
+  if(ev.key==="Tab"){
+    var a=$("mNo"), b=$("mYes"), cur=document.activeElement;
+    if(ev.shiftKey&&cur===a){ev.preventDefault();b.focus();}
+    else if(!ev.shiftKey&&cur===b){ev.preventDefault();a.focus();}
+  }
+});
 window.addEventListener("hashchange",function(){var c=readCode();if(c&&c!==code)setCode(c);});
+
+/* ---------- Synchronisation Supabase (utilisée hors de Claude) ---------- */
+var SUPABASE_URL="https://xkaavztthqibpluhauur.supabase.co";
+var SUPABASE_KEY="sb_publishable_82RYUYfJAgcLGp43rzPrtw_W42giZbX";
+var myName=""; try{myName=localStorage.getItem("courses:me")||"";}catch(e){}
+function deviceId(){
+  var v=""; try{v=localStorage.getItem("courses:device")||"";}catch(e){}
+  if(!v){v="d"+Date.now().toString(36)+Math.random().toString(36).slice(2,8);try{localStorage.setItem("courses:device",v);}catch(e){}}
+  return v;
+}
+function makeSupabase(url,key){
+  var H={"apikey":key,"Content-Type":"application/json"}, rooms={}, timer=null, lastWrite=0;
+  function rpc(fn,args){
+    return fetch(url+"/rest/v1/rpc/"+fn,{method:"POST",headers:H,body:JSON.stringify(args)}).then(function(r){
+      if(!r.ok) throw new Error(fn+" "+r.status);
+      return r.text().then(function(t){return t?JSON.parse(t):null;});
+    });
+  }
+  function room(c){return rooms[c]||(rooms[c]={items:{},habits:{},exists:false,name:"",loaded:false,busy:false,sig:{},subs:{items:[],habits:[],doc:[]}});}
+  function colSnap(m){var ids=Object.keys(m);return {empty:!ids.length,docs:ids.map(function(id){return {id:id,data:function(){return m[id];}};})};}
+  function docSnap(r){return {exists:r.exists,data:function(){return {name:r.name};}};}
+  function emit(c){
+    var r=room(c), sg={items:JSON.stringify(r.items),habits:JSON.stringify(r.habits),doc:r.exists+"|"+r.name};
+    if(sg.items!==r.sig.items) r.subs.items.slice().forEach(function(f){f(colSnap(r.items));});
+    if(sg.habits!==r.sig.habits) r.subs.habits.slice().forEach(function(f){f(colSnap(r.habits));});
+    if(sg.doc!==r.sig.doc) r.subs.doc.slice().forEach(function(f){f(docSnap(r));});
+    r.sig=sg;
+  }
+  function poll(c){
+    var r=room(c); if(r.busy) return; r.busy=true; var t0=Date.now();
+    rpc("list_get",{p_code:c}).then(function(d){
+      r.busy=false; if(!d||t0<lastWrite) return;
+      r.exists=!!d.exists; r.name=d.name||""; r.items={}; r.habits={};
+      (d.items||[]).forEach(function(x){r.items[x.id]=x;});
+      (d.habits||[]).forEach(function(x){r.habits[x.id]=x;});
+      r.loaded=true; emit(c);
+    }).catch(function(){r.busy=false;});
+  }
+  function tick(){
+    if(document.visibilityState!=="visible"||navigator.onLine===false) return;
+    Object.keys(rooms).forEach(function(c){var s=rooms[c].subs; if(s.items.length||s.habits.length||s.doc.length) poll(c);});
+  }
+  function listen(c,kind,cb){
+    var r=room(c); r.subs[kind].push(cb);
+    if(!timer){timer=setInterval(tick,4000);document.addEventListener("visibilitychange",tick);window.addEventListener("online",tick);}
+    if(r.loaded) setTimeout(function(){if(r.subs[kind].indexOf(cb)>-1) cb(kind==="doc"?docSnap(r):colSnap(r[kind]));},0);
+    else poll(c);
+    return function(){var i=r.subs[kind].indexOf(cb);if(i>-1)r.subs[kind].splice(i,1);};
+  }
+  function write(c,fn,args,apply){
+    var r=room(c); lastWrite=Date.now(); apply(r); emit(c);
+    return rpc(fn,args).then(function(){lastWrite=Date.now();},function(e){lastWrite=0;poll(c);throw e;});
+  }
+  function path(p){var a=p.split("/");return {code:a[1],kind:a[2]};}
+  return {
+    collection:function(p){
+      var q=path(p), c=q.code, kind=q.kind;
+      return {
+        onSnapshot:function(cb){return listen(c,kind,cb);},
+        doc:function(id){
+          var d={
+            set:function(obj){
+              return write(c,kind==="items"?"item_put":"habit_put",kind==="items"?{p_code:c,p_item:obj}:{p_code:c,p_habit:obj},function(r){r[kind][id]=obj;});
+            },
+            update:function(f){
+              var base=room(c)[kind][id]; if(!base) return Promise.reject(new Error("absent"));
+              return d.set(Object.assign({},base,f));
+            },
+            "delete":function(){return write(c,"item_delete",{p_code:c,p_id:id},function(r){delete r[kind][id];});}
+          };
+          return d;
+        }
+      };
+    },
+    doc:function(p){
+      var c=path(p).code;
+      return {
+        onSnapshot:function(cb){return listen(c,"doc",cb);},
+        set:function(o){var n=(o&&o.name)||"";return write(c,"list_set_name",{p_code:c,p_name:n},function(r){r.exists=true;r.name=n;});}
+      };
+    }
+  };
+}
 
 /* ---------- Démarrage (fonctionne seul, puis le partage s’active) ---------- */
 start();
 function use(n){return (window.claude&&window.claude.use)?window.claude.use(n).catch(function(){return null;}):Promise.resolve(null);}
 Promise.all([use("db"),use("user")]).then(function(r){
-  db=r[0]; userNs=r[1]; dbChecked=true;
+  db=r[0]||(SUPABASE_URL&&SUPABASE_KEY?makeSupabase(SUPABASE_URL,SUPABASE_KEY):null); userNs=r[1]; dbChecked=true;
   return userNs&&userNs.id?userNs.id().catch(function(){return null;}):null;
-}).then(function(id){meId=id||""; start();}).catch(function(){dbChecked=true;renderStatus();});
+}).then(function(id){meId=id||deviceId(); start();}).catch(function(){dbChecked=true;renderStatus();});
 })();
 </script>
 <script>
